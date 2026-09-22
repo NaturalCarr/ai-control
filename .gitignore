@@ -1,0 +1,10 @@
+.vs/
+bin/
+obj/
+*.exe
+*.pdb
+.env
+*.log
+models/
+owui-venv/
+__pycache__/
