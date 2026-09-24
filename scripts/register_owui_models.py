@@ -19,24 +19,10 @@ MODELS_TO_REGISTER = [
         "vision":      True,
     },
     {
-        "id":          "local-qwen3-8b",
-        "name":        "Qwen3 8B",
-        "base_model":  "Qwen3 8B",
-        "description": "Qwen3 8B — fast, thinking-capable",
-        "vision":      False,
-    },
-    {
-        "id":          "local-qwen3-8b-uncensored",
-        "name":        "Qwen3 8B Uncensored",
-        "base_model":  "Qwen3 8B Uncensored",
-        "description": "Qwen3 8B abliterated — uncensored variant",
-        "vision":      False,
-    },
-    {
         "id":          "local-qwen3-14b",
-        "name":        "Qwen3 14B",
-        "base_model":  "Qwen3 14B",
-        "description": "Qwen3 14B — balanced quality and speed",
+        "name":        "Qwen3 14B Abliterated",
+        "base_model":  "Qwen3 14B Abliterated",
+        "description": "Qwen3 14B Abliterated — balanced quality and speed",
         "vision":      False,
     },
     {

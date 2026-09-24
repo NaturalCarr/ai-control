@@ -3,6 +3,7 @@ bin/
 obj/
 *.exe
 *.pdb
+/ai-control.ico
 .env
 *.log
 models/

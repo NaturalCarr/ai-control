@@ -7,6 +7,8 @@ using System.Windows.Forms;
 using System.Diagnostics;
 using System.Net.Sockets;
 using System.Threading;
+using System.IO;
+using System.Runtime.InteropServices;
 
 // Button that draws the ↺ character rotated by Angle degrees
 class ReloadButton : Button
@@ -37,18 +39,21 @@ class ReloadButton : Button
 
 public class AIControlForm : Form
 {
-    Label lblSwap, lblWeb, lblComfy;
-    Label statusSwap, statusWeb, statusComfy;
-    Button btnSwap, btnWeb, btnComfy;
-    Button btnOpenSwap, btnOpenWeb, btnOpenComfy;
-    Button btnLogsSwap, btnLogsWeb, btnLogsComfy, btnLogsGui;
+    Label lblSwap, lblWeb, lblComfy, lblMcp;
+    Label statusSwap, statusWeb, statusComfy, statusMcp;
+    Button btnSwap, btnWeb, btnComfy, btnMcp;
+    Button btnOpenSwap, btnOpenWeb, btnOpenComfy, btnOpenMcp;
+    Button btnLogsSwap, btnLogsWeb, btnLogsComfy, btnLogsMcp, btnLogsGui;
     Button btnAll, btnStop, btnReloadAll;
-    ReloadButton btnReloadSwap, btnReloadWeb, btnReloadComfy;
+    ReloadButton btnReloadSwap, btnReloadWeb, btnReloadComfy, btnReloadMcp;
     System.Windows.Forms.Timer timer;
     NotifyIcon tray;
-    Process swapProc, webProc, comfyProc;
+    Icon trayIcon;
+    Icon windowIcon;
+    Color trayIconColor = Color.Empty;
+    Process swapProc, webProc, comfyProc, mcpProc;
     bool exitForReal = false;
-    bool reloadingSwap, reloadingWeb, reloadingComfy;
+    bool reloadingSwap, reloadingWeb, reloadingComfy, reloadingMcp;
     System.Windows.Forms.Timer spinTimer;
     List<string> guiLog = new List<string>();
 
@@ -56,6 +61,7 @@ public class AIControlForm : Form
     static Color FG     = Color.White;
     static Color GREEN  = Color.FromArgb(50, 205, 50);
     static Color RED    = Color.FromArgb(220, 60, 60);
+    static Color YELLOW = Color.FromArgb(255, 215, 0);
     static Color ORANGE = Color.FromArgb(255, 165, 0);
     static Color BTNBG  = Color.FromArgb(55, 55, 55);
 
@@ -65,11 +71,15 @@ public class AIControlForm : Form
     const string COMFY_LOG_WIN = @"C:\Users\Natural\AppData\Local\Temp\comfyui.log";
     const string SWAP_LOG_WIN  = @"C:\Users\Natural\AppData\Local\Temp\llama-swap.log";
     const string WEB_LOG_WIN   = @"C:\Users\Natural\AppData\Local\Temp\owui.log";
+    const string MCP_LOG_WSL   = "/tmp/ai-workspace-mcp.log";
+    const string MCP_LOG_WIN   = @"C:\Users\Natural\AppData\Local\Temp\ai-workspace-mcp.log";
 
     public AIControlForm()
     {
         Text = "Local AI";
-        ClientSize = new Size(320, 200);
+        windowIcon = CreateExcavatorIcon(GREEN);
+        Icon = windowIcon;
+        ClientSize = new Size(320, 232);
         FormBorderStyle = FormBorderStyle.FixedSingle;
         MaximizeBox = false;
         StartPosition = FormStartPosition.Manual;
@@ -83,65 +93,79 @@ public class AIControlForm : Form
         Font fontBtn = new Font("Segoe UI", 9f);
         Color OPENBG = Color.FromArgb(35, 70, 140);
 
-        // Row 1 — Model Proxy (y=10)
+        // Row 1 — llama-swap (y=10)
         // layout: ↺ | Open | Start/Stop | ☰
-        lblSwap       = MakeLabel("Model Proxy", font, FG, 14, 10);
+        lblSwap       = MakeLabel("llama-swap", font, FG, 14, 10);
         statusSwap    = MakeStatusLabel(14, 27, fontSt);
         btnReloadSwap = MakeReloadBtn(110, 10);
         btnOpenSwap   = MakeBtn("Open",  fontBtn, 48, 26, 136, 10, OPENBG);
         btnSwap       = MakeBtn("Start", fontBtn, 68, 26, 188, 10, BTNBG);
         btnLogsSwap   = MakeLogsBtn(282, 10);
 
-        // Row 2 — ComfyUI (y=54)
-        lblComfy       = MakeLabel("ComfyUI", font, FG, 14, 54);
-        statusComfy    = MakeStatusLabel(14, 71, fontSt);
-        btnReloadComfy = MakeReloadBtn(110, 54);
-        btnOpenComfy   = MakeBtn("Open",  fontBtn, 48, 26, 136, 54, OPENBG);
-        btnComfy       = MakeBtn("Start", fontBtn, 68, 26, 188, 54, BTNBG);
-        btnLogsComfy   = MakeLogsBtn(282, 54);
+        // Row 2 — Open WebUI (y=54)
+        lblWeb       = MakeLabel("Open WebUI", font, FG, 14, 54);
+        statusWeb    = MakeStatusLabel(14, 71, fontSt);
+        btnReloadWeb = MakeReloadBtn(110, 54);
+        btnOpenWeb   = MakeBtn("Open",  fontBtn, 48, 26, 136, 54, OPENBG);
+        btnWeb       = MakeBtn("Start", fontBtn, 68, 26, 188, 54, BTNBG);
+        btnLogsWeb   = MakeLogsBtn(282, 54);
 
-        // Row 3 — Open WebUI (y=98)
-        lblWeb       = MakeLabel("Open WebUI", font, FG, 14, 98);
-        statusWeb    = MakeStatusLabel(14, 115, fontSt);
-        btnReloadWeb = MakeReloadBtn(110, 98);
-        btnOpenWeb   = MakeBtn("Open",  fontBtn, 48, 26, 136, 98, OPENBG);
-        btnWeb       = MakeBtn("Start", fontBtn, 68, 26, 188, 98, BTNBG);
-        btnLogsWeb   = MakeLogsBtn(282, 98);
+        // Row 3 — ComfyUI (y=98)
+        lblComfy       = MakeLabel("ComfyUI", font, FG, 14, 98);
+        statusComfy    = MakeStatusLabel(14, 115, fontSt);
+        btnReloadComfy = MakeReloadBtn(110, 98);
+        btnOpenComfy   = MakeBtn("Open",  fontBtn, 48, 26, 136, 98, OPENBG);
+        btnComfy       = MakeBtn("Start", fontBtn, 68, 26, 188, 98, BTNBG);
+        btnLogsComfy   = MakeLogsBtn(282, 98);
 
-        var sep = new Label { BorderStyle = BorderStyle.Fixed3D, Size = new Size(296, 2), Location = new Point(12, 148) };
+        // Row 4 — official filesystem bridge (y=142)
+        lblMcp       = MakeLabel("AI Workspace MCP", font, FG, 14, 142);
+        statusMcp    = MakeStatusLabel(14, 159, fontSt);
+        btnReloadMcp = MakeReloadBtn(110, 142);
+        btnOpenMcp   = MakeBtn("Open",  fontBtn, 48, 26, 136, 142, OPENBG);
+        btnMcp       = MakeBtn("Start", fontBtn, 68, 26, 188, 142, BTNBG);
+        btnLogsMcp   = MakeLogsBtn(282, 142);
+
+        var sep = new Label { BorderStyle = BorderStyle.Fixed3D, Size = new Size(296, 2), Location = new Point(12, 180) };
 
         // Bottom row: Start All | Stop All | Reload All | ☰
-        btnAll       = MakeBtn("Start All",  fontBtn, 80, 28, 12,  156, Color.FromArgb(35, 110, 35));
-        btnStop      = MakeBtn("Stop All",   fontBtn, 80, 28, 102, 156, Color.FromArgb(140, 35, 35));
-        btnReloadAll = MakeBtn("Reload All", fontBtn, 86, 28, 192, 156, Color.FromArgb(130, 90, 0));
-        btnLogsGui   = MakeLogsBtn(282, 156, 28);
+        btnAll       = MakeBtn("Start All",  fontBtn, 80, 28, 12,  188, Color.FromArgb(35, 110, 35));
+        btnStop      = MakeBtn("Stop All",   fontBtn, 80, 28, 102, 188, Color.FromArgb(140, 35, 35));
+        btnReloadAll = MakeBtn("Reload All", fontBtn, 86, 28, 192, 188, Color.FromArgb(130, 90, 0));
+        btnLogsGui   = MakeLogsBtn(282, 188, 28);
 
         Controls.AddRange(new Control[] {
             lblSwap, statusSwap, btnReloadSwap, btnLogsSwap, btnOpenSwap, btnSwap,
-            lblComfy, statusComfy, btnReloadComfy, btnLogsComfy, btnOpenComfy, btnComfy,
             lblWeb, statusWeb, btnReloadWeb, btnLogsWeb, btnOpenWeb, btnWeb,
+            lblComfy, statusComfy, btnReloadComfy, btnLogsComfy, btnOpenComfy, btnComfy,
+            lblMcp, statusMcp, btnReloadMcp, btnLogsMcp, btnOpenMcp, btnMcp,
             sep, btnAll, btnStop, btnLogsGui, btnReloadAll
         });
 
         btnSwap.Click  += (s, e) => { reloadingSwap = false;  if (btnSwap.Text == "Start") DoStart("swap");   else DoStop("swap"); };
         btnWeb.Click   += (s, e) => { reloadingWeb = false;   if (btnWeb.Text == "Start") DoStart("web");     else DoStop("web"); };
         btnComfy.Click += (s, e) => { reloadingComfy = false; if (btnComfy.Text == "Start") DoStart("comfy"); else DoStop("comfy"); };
-        btnOpenSwap.Click  += (s, e) => Process.Start("http://localhost:8080");
+        btnMcp.Click   += (s, e) => { if (btnMcp.Text == "Start") DoStart("mcp"); else DoStop("mcp"); };
+        btnOpenSwap.Click  += (s, e) => Process.Start("http://localhost:8080/ui/#/playground");
         btnOpenWeb.Click   += (s, e) => Process.Start("http://localhost:3000");
         btnOpenComfy.Click += (s, e) => Process.Start("http://localhost:8188");
+        btnOpenMcp.Click += (s, e) => Process.Start("http://127.0.0.1:8787/docs");
         btnReloadSwap.Click  += (s, e) => { reloadingSwap = true;  DoStop("swap");  DoStart("swap"); };
         btnReloadWeb.Click   += (s, e) => { reloadingWeb = true;   DoStop("web");   DoStart("web"); };
         btnReloadComfy.Click += (s, e) => { reloadingComfy = true; DoStop("comfy"); DoStart("comfy"); };
-        btnAll.Click       += (s, e) => { DoStart("swap"); DoStart("web"); DoStart("comfy"); };
-        btnStop.Click      += (s, e) => { DoStop("swap"); DoStop("web"); DoStop("comfy"); };
+        btnReloadMcp.Click += (s, e) => { DoStop("mcp"); DoStart("mcp"); };
+        btnAll.Click       += (s, e) => { DoStart("swap"); DoStart("web"); DoStart("comfy"); DoStart("mcp"); };
+        btnStop.Click      += (s, e) => { DoStop("swap"); DoStop("web"); DoStop("comfy"); DoStop("mcp"); };
         btnReloadAll.Click += (s, e) => {
             reloadingSwap = true;  DoStop("swap");  DoStart("swap");
             reloadingWeb = true;   DoStop("web");   DoStart("web");
             reloadingComfy = true; DoStop("comfy"); DoStart("comfy");
+            DoStop("mcp"); DoStart("mcp");
         };
         btnLogsSwap.Click  += (s, e) => OpenWslLog(SWAP_LOG_WSL, SWAP_LOG_WIN);
         btnLogsWeb.Click   += (s, e) => OpenWslLog(WEB_LOG_WSL,  WEB_LOG_WIN);
         btnLogsComfy.Click += (s, e) => OpenWinLog(COMFY_LOG_WIN);
+        btnLogsMcp.Click   += (s, e) => OpenWslLog(MCP_LOG_WSL, MCP_LOG_WIN);
         btnLogsGui.Click   += (s, e) => ShowGuiLog();
 
         timer = new System.Windows.Forms.Timer();
@@ -157,7 +181,7 @@ public class AIControlForm : Form
         SetupTray();
         Resize += (s, e) => { if (WindowState == FormWindowState.Minimized) { Hide(); ShowInTaskbar = false; } };
         FormClosing += (s, e) => { if (!exitForReal) { e.Cancel = true; Hide(); ShowInTaskbar = false; } };
-        FormClosed  += (s, e) => { timer.Stop(); spinTimer.Stop(); tray.Visible = false; tray.Dispose(); };
+        FormClosed  += (s, e) => { timer.Stop(); spinTimer.Stop(); tray.Visible = false; tray.Dispose(); if (trayIcon != null) trayIcon.Dispose(); if (windowIcon != null) windowIcon.Dispose(); };
 
         GUILog("GUI started");
         UpdateUI();
@@ -290,7 +314,7 @@ public class AIControlForm : Form
     {
         if (svc == "swap")
         {
-            GUILog("Model Proxy starting");
+            GUILog("llama-swap starting");
             statusSwap.Text = "Starting"; statusSwap.ForeColor = ORANGE;
             btnSwap.Text = "..."; btnSwap.Enabled = false;
             swapProc = RunWSL("bash", "-c",
@@ -326,13 +350,29 @@ public class AIControlForm : Form
                 "\"C:\\Users\\Natural\\ComfyUI\\main.py\" --listen 0.0.0.0 --port 8188" +
                 " >> \"" + COMFY_LOG_WIN + "\" 2>&1\"");
         }
+        else if (svc == "mcp")
+        {
+            GUILog("AI Workspace MCP starting");
+            statusMcp.Text = "Starting"; statusMcp.ForeColor = ORANGE;
+            btnMcp.Text = "..."; btnMcp.Enabled = false;
+            mcpProc = RunWSL("bash", "-c",
+                "export PATH=/home/natural/.local/node/bin:$PATH; " +
+                "/mnt/c/Users/Natural/llama.cpp/owui-venv/bin/mcpo" +
+                " --host 127.0.0.1 --port 8787" +
+                " --name ai-workspace-files" +
+                " --description 'Restricted AI Workspace filesystem'" +
+                " -- /home/natural/.local/node/bin/node" +
+                " /home/natural/.local/mcp-filesystem/node_modules/@modelcontextprotocol/server-filesystem/dist/index.js" +
+                " /mnt/c/Users/Natural/AI-Workspace" +
+                " >> " + MCP_LOG_WSL + " 2>&1");
+        }
     }
 
     void DoStop(string svc)
     {
         if (svc == "swap")
         {
-            GUILog("Model Proxy stopping");
+            GUILog("llama-swap stopping");
             if (IsAlive(swapProc)) { try { swapProc.Kill(); } catch {} }
             swapProc = null;
             RunWSL("pkill", "-x", "llama-swap");
@@ -370,6 +410,13 @@ public class AIControlForm : Form
             }
             catch {}
         }
+        else if (svc == "mcp")
+        {
+            GUILog("AI Workspace MCP stopping");
+            if (IsAlive(mcpProc)) { try { mcpProc.Kill(); } catch {} }
+            mcpProc = null;
+            RunWSL("pkill", "-f", "mcpo.*ai-workspace-files");
+        }
     }
 
     void SpinTick()
@@ -401,12 +448,28 @@ public class AIControlForm : Form
 
     void UpdateUI()
     {
-        bool s = TestPort(8080), w = TestPort(3000), c = TestPort(8188);
-        UpdateSvc(s, swapProc, statusSwap, btnSwap, btnOpenSwap, ref reloadingSwap, "Model Proxy");
+        bool s = TestPort(8080), w = TestPort(3000), c = TestPort(8188), m = TestPort(8787);
+        UpdateSvc(s, swapProc, statusSwap, btnSwap, btnOpenSwap, ref reloadingSwap, "llama-swap");
         UpdateSvc(w, webProc, statusWeb, btnWeb, btnOpenWeb, ref reloadingWeb, "Open WebUI");
         UpdateSvc(c, comfyProc, statusComfy, btnComfy, btnOpenComfy, ref reloadingComfy, "ComfyUI");
+        UpdateSvc(m, mcpProc, statusMcp, btnMcp, btnOpenMcp, ref reloadingMcp, "AI Workspace MCP");
         if (tray != null)
-            tray.Text = "Local AI  Proxy:" + (s?"ON":"OFF") + " WebUI:" + (w?"ON":"OFF") + " Comfy:" + (c?"ON":"OFF");
+        {
+            tray.Text = "Local AI  llama-swap:" + (s?"ON":"OFF") + " WebUI:" + (w?"ON":"OFF") + " Comfy:" + (c?"ON":"OFF") + " MCP:" + (m?"ON":"OFF");
+            bool crashed = IsErrorStatus(statusSwap) || IsErrorStatus(statusWeb) || IsErrorStatus(statusComfy) || IsErrorStatus(statusMcp);
+            bool starting = IsStartingStatus(statusSwap) || IsStartingStatus(statusWeb) || IsStartingStatus(statusComfy) || IsStartingStatus(statusMcp);
+            RefreshTrayIcon(crashed ? RED : starting ? YELLOW : GREEN);
+        }
+    }
+
+    bool IsErrorStatus(Label label)
+    {
+        return label.Text == "Crashed" || label.Text.IndexOf("failed", StringComparison.OrdinalIgnoreCase) >= 0;
+    }
+
+    bool IsStartingStatus(Label label)
+    {
+        return label.Text == "Starting" || label.Text == "Restarting";
     }
 
     void UpdateSvc(bool portUp, Process proc, Label statusLbl, Button btn, Button btnOpen, ref bool reloading, string name)
@@ -444,30 +507,28 @@ public class AIControlForm : Form
 
     void SetupTray()
     {
-        var bmp = new Bitmap(16, 16);
-        using (var g = Graphics.FromImage(bmp))
-        {
-            g.SmoothingMode = SmoothingMode.AntiAlias;
-            g.Clear(Color.Transparent);
-            g.FillEllipse(Brushes.LimeGreen, 1, 1, 14, 14);
-        }
         tray = new NotifyIcon();
-        tray.Icon = Icon.FromHandle(bmp.GetHicon());
+        trayIcon = CreateExcavatorIcon(GREEN);
+        trayIconColor = GREEN;
+        tray.Icon = trayIcon;
         tray.Visible = true;
         tray.Text = "Local AI";
 
         var cm = new ContextMenuStrip();
         cm.Items.Add("Show",        null, (s, e) => ShowFront());
         cm.Items.Add("-");
-        cm.Items.Add("Start All",   null, (s, e) => { DoStart("swap"); DoStart("web"); DoStart("comfy"); });
-        cm.Items.Add("Stop All",    null, (s, e) => { DoStop("swap"); DoStop("web"); DoStop("comfy"); });
+        cm.Items.Add("Start All",   null, (s, e) => { DoStart("swap"); DoStart("web"); DoStart("comfy"); DoStart("mcp"); });
+        cm.Items.Add("Stop All",    null, (s, e) => { DoStop("swap"); DoStop("web"); DoStop("comfy"); DoStop("mcp"); });
         cm.Items.Add("-");
-        cm.Items.Add("Open Chat",    null, (s, e) => Process.Start("http://localhost:3000"));
-        cm.Items.Add("Open ComfyUI", null, (s, e) => Process.Start("http://localhost:8188"));
+        cm.Items.Add("Go to llama-swap", null, (s, e) => Process.Start("http://localhost:8080/ui/#/playground"));
+        cm.Items.Add("Go to Open WebUI", null, (s, e) => Process.Start("http://localhost:3000"));
+        cm.Items.Add("Go to ComfyUI", null, (s, e) => Process.Start("http://localhost:8188"));
+        cm.Items.Add("Open AI Workspace MCP", null, (s, e) => Process.Start("http://127.0.0.1:8787/docs"));
         cm.Items.Add("-");
-        cm.Items.Add("Proxy Log",   null, (s, e) => OpenWslLog(SWAP_LOG_WSL, SWAP_LOG_WIN));
+        cm.Items.Add("llama-swap Log", null, (s, e) => OpenWslLog(SWAP_LOG_WSL, SWAP_LOG_WIN));
         cm.Items.Add("WebUI Log",   null, (s, e) => OpenWslLog(WEB_LOG_WSL,  WEB_LOG_WIN));
         cm.Items.Add("ComfyUI Log", null, (s, e) => OpenWinLog(COMFY_LOG_WIN));
+        cm.Items.Add("MCP Log", null, (s, e) => OpenWslLog(MCP_LOG_WSL, MCP_LOG_WIN));
         cm.Items.Add("GUI Log",     null, (s, e) => ShowGuiLog());
         cm.Items.Add("-");
         cm.Items.Add("Exit", null, (s, e) => { exitForReal = true; tray.Visible = false; Close(); });
@@ -475,9 +536,60 @@ public class AIControlForm : Form
         tray.DoubleClick += (s, e) => ShowFront();
     }
 
-    [STAThread]
-    public static void Main()
+    void RefreshTrayIcon(Color color)
     {
+        if (tray == null || trayIconColor == color) return;
+        var next = CreateExcavatorIcon(color);
+        var nextWindow = CreateExcavatorIcon(color);
+        var previous = trayIcon;
+        var previousWindow = windowIcon;
+        tray.Icon = next;
+        trayIcon = next;
+        Icon = nextWindow;
+        windowIcon = nextWindow;
+        trayIconColor = color;
+        if (previous != null) previous.Dispose();
+        if (previousWindow != null) previousWindow.Dispose();
+    }
+
+    static Icon CreateExcavatorIcon(Color color, string imagePath = null)
+    {
+        var bmp = new Bitmap(32, 32);
+        using (var g = Graphics.FromImage(bmp))
+        using (var source = Image.FromFile(imagePath ?? Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "src", "excavator.png")))
+        {
+            g.SmoothingMode = SmoothingMode.AntiAlias;
+            g.InterpolationMode = InterpolationMode.HighQualityBicubic;
+            g.PixelOffsetMode = PixelOffsetMode.HighQuality;
+            g.Clear(color);
+            g.DrawImage(source, new Rectangle(0, 0, 32, 32));
+        }
+
+        IntPtr handle = bmp.GetHicon();
+        Icon icon;
+        try { icon = (Icon)Icon.FromHandle(handle).Clone(); }
+        finally { DestroyIcon(handle); bmp.Dispose(); }
+        return icon;
+    }
+
+    public static void ExportExcavatorIcon(string path, string imagePath)
+    {
+        using (var icon = CreateExcavatorIcon(GREEN, imagePath))
+        using (var stream = File.Create(path))
+            icon.Save(stream);
+    }
+
+    [DllImport("user32.dll", SetLastError = true)]
+    static extern bool DestroyIcon(IntPtr handle);
+
+    [STAThread]
+    public static void Main(string[] args)
+    {
+        if (args.Length == 3 && args[0] == "--export-icon")
+        {
+            ExportExcavatorIcon(args[1], args[2]);
+            return;
+        }
         bool created;
         using (var mtx = new Mutex(true, "LocalAI_Control_SingleInstance", out created))
         {

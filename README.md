@@ -17,9 +17,7 @@ The example configuration includes:
 
 - Qwen2.5 Coder 14B
 - Qwen3.5 9B Vision
-- Qwen3 8B
-- Qwen3 8B Uncensored
-- Qwen3 14B Q5_K_M
+- Qwen3 14B Abliterated Q5_K_M
 - Qwen3.8 27B UD-Q3_K_XL
 
 Model weights are deliberately excluded from Git. Download them separately and update the paths in `config/llama-swap-config.example.yaml` for your machine.
@@ -40,6 +38,8 @@ Model weights are deliberately excluded from Git. Download them separately and u
 2. Open `src/ai-control.cs` and change the paths and WSL working directory to match your machine.
 3. Run `build.bat`.
 4. Start the resulting `ai-control.exe`, or use `launch.vbs` for a window without an extra console.
+
+The window and notification-area icons use `src/excavator.png`. See [Icon status](docs/icon-status.md) for how the background color reflects service state.
 
 The current reference setup expects the local stack at:
 
@@ -75,7 +75,7 @@ The manager uses exact process-name matching when stopping WSL services. This av
 
 The **Open** buttons open the local dashboards:
 
-- llama-swap: `http://localhost:8080`
+- llama-swap playground: `http://localhost:8080/ui/#/playground`
 - Open WebUI: `http://localhost:3000`
 - ComfyUI: `http://localhost:8188`
 
