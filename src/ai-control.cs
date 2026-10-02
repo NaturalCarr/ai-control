@@ -701,7 +701,7 @@ public class AIControlForm : Form
             picker.StartPosition = FormStartPosition.CenterParent;
             picker.BackColor = BG;
             picker.ForeColor = FG;
-            var label = new Label { Text = "Recent locations", Location = new Point(12, 12),
+            var label = new Label { Text = "Search recent locations", Location = new Point(12, 12),
                 Size = new Size(300, 20), ForeColor = FG };
             var search = new TextBox { Location = new Point(12, 36), Size = new Size(616, 24),
                 Font = new Font("Segoe UI", 9f) };
@@ -711,6 +711,7 @@ public class AIControlForm : Form
                 BackgroundColor = BTNBG, ForeColor = FG, GridColor = Color.FromArgb(70, 70, 70),
                 BorderStyle = BorderStyle.FixedSingle, AllowUserToAddRows = false,
                 AllowUserToDeleteRows = false, AllowUserToResizeRows = false,
+                AllowUserToResizeColumns = false,
                 ReadOnly = true, RowHeadersVisible = false, ColumnHeadersVisible = true,
                 MultiSelect = true, SelectionMode = DataGridViewSelectionMode.FullRowSelect,
                 ScrollBars = ScrollBars.Both,
@@ -722,9 +723,12 @@ public class AIControlForm : Form
             recent.ColumnHeadersDefaultCellStyle.BackColor = BG;
             recent.ColumnHeadersDefaultCellStyle.ForeColor = FG;
             recent.EnableHeadersVisualStyles = false;
-            recent.Columns.Add(new DataGridViewTextBoxColumn { Name = "Path", AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill });
-            recent.Columns.Add(new DataGridViewTextBoxColumn { Name = "Last opened", Width = 132 });
-            recent.Columns.Add(new DataGridViewButtonColumn { Name = "Remove", Width = 36,
+            recent.Columns.Add(new DataGridViewTextBoxColumn { Name = "Path", MinimumWidth = 280,
+                AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill, SortMode = DataGridViewColumnSortMode.NotSortable });
+            recent.Columns.Add(new DataGridViewTextBoxColumn { Name = "Last opened", Width = 150,
+                MinimumWidth = 150, SortMode = DataGridViewColumnSortMode.NotSortable });
+            recent.Columns.Add(new DataGridViewButtonColumn { Name = "Remove", HeaderText = "", Width = 36,
+                ToolTipText = "Remove from Recent", SortMode = DataGridViewColumnSortMode.NotSortable,
                 Text = "-", UseColumnTextForButtonValue = true });
             var open = MakeBtn("Open", new Font("Segoe UI", 9f), 128, 28, 306, 350, Color.FromArgb(35, 70, 140));
             var browse = MakeBtn("Browse...", new Font("Segoe UI", 9f), 90, 28, 442, 350, BTNBG);
