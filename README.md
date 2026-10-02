@@ -7,6 +7,8 @@ AI Control is a small Windows desktop manager for a local AI stack. It gives you
 - **llama-swap**: the local model router on port `8080`
 - **Open WebUI**: the browser chat interface on port `3000`
 - **ComfyUI**: image and video generation on port `8188`
+- **MCP**: local workspace bridge and configurator
+- **OpenCode**: launches its WSL terminal UI in a selected project folder
 - **Local models**: start a model through llama-swap, watch active services, and stop them when finished
 
 The manager is a Windows Forms application. llama-swap and Open WebUI run under WSL2; ComfyUI runs natively on Windows.
@@ -40,6 +42,8 @@ Model weights are deliberately excluded from Git. Download them separately and u
 4. Start the resulting `ai-control.exe`, or use `launch.vbs` for a window without an extra console.
 
 The window and notification-area icons use `src/excavator.png`. See [Icon status](docs/icon-status.md) for how the background color reflects service state.
+
+OpenCode's **Launch** button lists the last 10 folders opened from this manager. Choose one to reopen it, or click **Browse...** to select a different folder. The folder browser includes **Make New Folder**. Recent paths are stored locally at `%LOCALAPPDATA%\LocalAI\opencode-recent.txt`; they are not part of this repository. OpenCode is an interactive terminal and is not stopped by **Stop All**.
 
 The current reference setup expects the local stack at:
 

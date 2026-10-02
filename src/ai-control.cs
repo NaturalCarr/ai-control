@@ -7,8 +7,10 @@ using System.Windows.Forms;
 using System.Diagnostics;
 using System.Net.Sockets;
 using System.Threading;
-using System.IO;
+using System.Threading.Tasks;
+using System.Text;
 using System.Runtime.InteropServices;
+using System.IO;
 
 // Button that draws the ↺ character rotated by Angle degrees
 class ReloadButton : Button
@@ -39,21 +41,22 @@ class ReloadButton : Button
 
 public class AIControlForm : Form
 {
-    Label lblSwap, lblWeb, lblComfy, lblMcp;
+    Label lblSwap, lblWeb, lblComfy, lblMcp, lblOpenCode;
     Label statusSwap, statusWeb, statusComfy, statusMcp;
     Button btnSwap, btnWeb, btnComfy, btnMcp;
     Button btnOpenSwap, btnOpenWeb, btnOpenComfy, btnOpenMcp;
     Button btnLogsSwap, btnLogsWeb, btnLogsComfy, btnLogsMcp, btnLogsGui;
-    Button btnAll, btnStop, btnReloadAll;
+    Button btnAll, btnStop, btnReloadAll, btnLaunchOpenCode;
     ReloadButton btnReloadSwap, btnReloadWeb, btnReloadComfy, btnReloadMcp;
     System.Windows.Forms.Timer timer;
     NotifyIcon tray;
     Icon trayIcon;
     Icon windowIcon;
     Color trayIconColor = Color.Empty;
-    Process swapProc, webProc, comfyProc, mcpProc;
+    Process swapProc, webProc, comfyProc, mcpProc, mcpConfigProc;
     bool exitForReal = false;
     bool reloadingSwap, reloadingWeb, reloadingComfy, reloadingMcp;
+    bool checkingPorts;
     System.Windows.Forms.Timer spinTimer;
     List<string> guiLog = new List<string>();
 
@@ -79,12 +82,12 @@ public class AIControlForm : Form
         Text = "Local AI";
         windowIcon = CreateExcavatorIcon(GREEN);
         Icon = windowIcon;
-        ClientSize = new Size(320, 232);
+        ClientSize = new Size(320, 276);
         FormBorderStyle = FormBorderStyle.FixedSingle;
         MaximizeBox = false;
         StartPosition = FormStartPosition.Manual;
         var wa = Screen.PrimaryScreen.WorkingArea;
-        Location = new Point(wa.Right - 340, wa.Bottom - 240);
+        Location = new Point(wa.Right - 340, wa.Bottom - 284);
         BackColor = BG;
         ForeColor = FG;
 
@@ -119,26 +122,36 @@ public class AIControlForm : Form
         btnLogsComfy   = MakeLogsBtn(282, 98);
 
         // Row 4 — official filesystem bridge (y=142)
-        lblMcp       = MakeLabel("AI Workspace MCP", font, FG, 14, 142);
+        lblMcp       = MakeLabel("MCP", font, FG, 14, 142);
+        lblMcp.Cursor = Cursors.Hand;
         statusMcp    = MakeStatusLabel(14, 159, fontSt);
         btnReloadMcp = MakeReloadBtn(110, 142);
         btnOpenMcp   = MakeBtn("Open",  fontBtn, 48, 26, 136, 142, OPENBG);
         btnMcp       = MakeBtn("Start", fontBtn, 68, 26, 188, 142, BTNBG);
+        var wrapTip = new ToolTip();
+        wrapTip.SetToolTip(lblMcp, "Click for MCP options");
         btnLogsMcp   = MakeLogsBtn(282, 142);
 
-        var sep = new Label { BorderStyle = BorderStyle.Fixed3D, Size = new Size(296, 2), Location = new Point(12, 180) };
+        lblOpenCode = MakeLabel("OpenCode", font, FG, 14, 186);
+        var openCodeStatus = MakeStatusLabel(14, 203, fontSt);
+        openCodeStatus.Text = "WSL terminal";
+        openCodeStatus.ForeColor = Color.FromArgb(170, 170, 170);
+        btnLaunchOpenCode = MakeBtn("Launch", fontBtn, 120, 26, 136, 186, OPENBG);
+
+        var sep = new Label { BorderStyle = BorderStyle.Fixed3D, Size = new Size(296, 2), Location = new Point(12, 224) };
 
         // Bottom row: Start All | Stop All | Reload All | ☰
-        btnAll       = MakeBtn("Start All",  fontBtn, 80, 28, 12,  188, Color.FromArgb(35, 110, 35));
-        btnStop      = MakeBtn("Stop All",   fontBtn, 80, 28, 102, 188, Color.FromArgb(140, 35, 35));
-        btnReloadAll = MakeBtn("Reload All", fontBtn, 86, 28, 192, 188, Color.FromArgb(130, 90, 0));
-        btnLogsGui   = MakeLogsBtn(282, 188, 28);
+        btnAll       = MakeBtn("Start All",  fontBtn, 80, 28, 12,  232, Color.FromArgb(35, 110, 35));
+        btnStop      = MakeBtn("Stop All",   fontBtn, 80, 28, 102, 232, Color.FromArgb(140, 35, 35));
+        btnReloadAll = MakeBtn("Reload All", fontBtn, 86, 28, 192, 232, Color.FromArgb(130, 90, 0));
+        btnLogsGui   = MakeLogsBtn(282, 232, 28);
 
         Controls.AddRange(new Control[] {
             lblSwap, statusSwap, btnReloadSwap, btnLogsSwap, btnOpenSwap, btnSwap,
             lblWeb, statusWeb, btnReloadWeb, btnLogsWeb, btnOpenWeb, btnWeb,
             lblComfy, statusComfy, btnReloadComfy, btnLogsComfy, btnOpenComfy, btnComfy,
             lblMcp, statusMcp, btnReloadMcp, btnLogsMcp, btnOpenMcp, btnMcp,
+            lblOpenCode, openCodeStatus, btnLaunchOpenCode,
             sep, btnAll, btnStop, btnLogsGui, btnReloadAll
         });
 
@@ -146,16 +159,21 @@ public class AIControlForm : Form
         btnWeb.Click   += (s, e) => { reloadingWeb = false;   if (btnWeb.Text == "Start") DoStart("web");     else DoStop("web"); };
         btnComfy.Click += (s, e) => { reloadingComfy = false; if (btnComfy.Text == "Start") DoStart("comfy"); else DoStop("comfy"); };
         btnMcp.Click   += (s, e) => { if (btnMcp.Text == "Start") DoStart("mcp"); else DoStop("mcp"); };
+        lblMcp.Click += (s, e) => HandleMcpLabelClick();
         btnOpenSwap.Click  += (s, e) => Process.Start("http://localhost:8080/ui/#/playground");
         btnOpenWeb.Click   += (s, e) => Process.Start("http://localhost:3000");
         btnOpenComfy.Click += (s, e) => Process.Start("http://localhost:8188");
-        btnOpenMcp.Click += (s, e) => Process.Start("http://127.0.0.1:8787/docs");
+        btnOpenMcp.Click += (s, e) => Process.Start("http://127.0.0.1:8790/");
+        btnLaunchOpenCode.Click += (s, e) => LaunchOpenCode();
         btnReloadSwap.Click  += (s, e) => { reloadingSwap = true;  DoStop("swap");  DoStart("swap"); };
         btnReloadWeb.Click   += (s, e) => { reloadingWeb = true;   DoStop("web");   DoStart("web"); };
         btnReloadComfy.Click += (s, e) => { reloadingComfy = true; DoStop("comfy"); DoStart("comfy"); };
         btnReloadMcp.Click += (s, e) => { DoStop("mcp"); DoStart("mcp"); };
         btnAll.Click       += (s, e) => { DoStart("swap"); DoStart("web"); DoStart("comfy"); DoStart("mcp"); };
-        btnStop.Click      += (s, e) => { DoStop("swap"); DoStop("web"); DoStop("comfy"); DoStop("mcp"); };
+        btnStop.Click      += (s, e) => StopAllServices();
+        var stopMenu = new ContextMenuStrip();
+        stopMenu.Items.Add("Stop -> Exit", null, (s, e) => StopAndExit());
+        btnStop.ContextMenuStrip = stopMenu;
         btnReloadAll.Click += (s, e) => {
             reloadingSwap = true;  DoStop("swap");  DoStart("swap");
             reloadingWeb = true;   DoStop("web");   DoStart("web");
@@ -170,7 +188,7 @@ public class AIControlForm : Form
 
         timer = new System.Windows.Forms.Timer();
         timer.Interval = 3000;
-        timer.Tick += (s, e) => UpdateUI();
+        timer.Tick += (s, e) => CheckServicesAsync();
         timer.Start();
 
         spinTimer = new System.Windows.Forms.Timer();
@@ -184,7 +202,7 @@ public class AIControlForm : Form
         FormClosed  += (s, e) => { timer.Stop(); spinTimer.Stop(); tray.Visible = false; tray.Dispose(); if (trayIcon != null) trayIcon.Dispose(); if (windowIcon != null) windowIcon.Dispose(); };
 
         GUILog("GUI started");
-        UpdateUI();
+        CheckServicesAsync();
     }
 
     void GUILog(string msg)
@@ -222,6 +240,112 @@ public class AIControlForm : Form
         tb.ScrollToCaret();
         f.Controls.Add(tb);
         f.Show();
+    }
+
+    void WrapAllModels()
+    {
+        string apiKey;
+        using (var prompt = new Form())
+        {
+            prompt.Text = "Open WebUI authentication";
+            prompt.Size = new Size(470, 180);
+            prompt.StartPosition = FormStartPosition.CenterParent;
+            prompt.FormBorderStyle = FormBorderStyle.FixedDialog;
+            prompt.MaximizeBox = false;
+            prompt.MinimizeBox = false;
+            prompt.BackColor = BG;
+            prompt.ForeColor = FG;
+            var label = new Label { Text = "API key (optional)", Location = new Point(12, 12),
+                Size = new Size(420, 20), ForeColor = FG };
+            var keyBox = new TextBox { Location = new Point(12, 34), Size = new Size(430, 24),
+                UseSystemPasswordChar = true };
+            var skipKey = new CheckBox { Text = "Continue without a key using local sign-in",
+                Location = new Point(12, 66), Size = new Size(420, 24), ForeColor = FG,
+                BackColor = BG, AutoSize = false };
+            var submit = MakeBtn("Submit", new Font("Segoe UI", 9f), 86, 28, 356, 104,
+                Color.FromArgb(35, 110, 35));
+            var cancel = MakeBtn("Cancel", new Font("Segoe UI", 9f), 80, 28, 268, 104, BTNBG);
+            submit.DialogResult = DialogResult.OK;
+            cancel.DialogResult = DialogResult.Cancel;
+            Action updateSubmit = () => { submit.Enabled = keyBox.Text.Trim().Length > 0 || skipKey.Checked; };
+            keyBox.TextChanged += (s, e) => updateSubmit();
+            skipKey.CheckedChanged += (s, e) => updateSubmit();
+            updateSubmit();
+            prompt.Controls.AddRange(new Control[] { label, keyBox, skipKey, submit, cancel });
+            prompt.AcceptButton = submit;
+            prompt.CancelButton = cancel;
+            if (prompt.ShowDialog(this) != DialogResult.OK) return;
+            apiKey = keyBox.Text.Trim();
+            keyBox.Clear();
+        }
+
+        lblMcp.Enabled = false;
+        GUILog("Wrapping Open WebUI model entries");
+        ThreadPool.QueueUserWorkItem(_ =>
+        {
+            string output = "";
+            string error = "";
+            int exitCode = -1;
+            try
+            {
+                var psi = new ProcessStartInfo {
+                    FileName = "wsl.exe",
+                    Arguments = "-e bash -lc \"cd /mnt/c/Users/Natural/llama.cpp && ./owui-venv/bin/python wrap_owui_models.py\"",
+                    CreateNoWindow = true, UseShellExecute = false,
+                    RedirectStandardInput = true, RedirectStandardOutput = true, RedirectStandardError = true,
+                    StandardOutputEncoding = Encoding.UTF8, StandardErrorEncoding = Encoding.UTF8
+                };
+                var stdout = new StringBuilder();
+                var stderr = new StringBuilder();
+                using (var p = new Process { StartInfo = psi })
+                {
+                    p.OutputDataReceived += (s, e) => { if (e.Data != null) lock (stdout) stdout.AppendLine(e.Data); };
+                    p.ErrorDataReceived += (s, e) => { if (e.Data != null) lock (stderr) stderr.AppendLine(e.Data); };
+                    p.Start();
+                    p.BeginOutputReadLine();
+                    p.BeginErrorReadLine();
+                    p.StandardInput.WriteLine(apiKey);
+                    p.StandardInput.Close();
+                    apiKey = null;
+                    p.WaitForExit();
+                    p.WaitForExit();
+                    exitCode = p.ExitCode;
+                    lock (stdout) output = stdout.ToString();
+                    lock (stderr) error = stderr.ToString();
+                }
+            }
+            catch (Exception ex) { error = ex.Message; }
+
+            try
+            {
+                BeginInvoke((MethodInvoker)delegate
+                {
+                    lblMcp.Enabled = true;
+                    GUILog(exitCode == 0 ? "Model wrapping completed" : "Model wrapping failed");
+                    string result = (output + (String.IsNullOrWhiteSpace(error) ? "" : "\r\n" + error)).Trim();
+                    if (result.Length > 5000) result = result.Substring(0, 5000);
+                    MessageBox.Show(this, result.Length == 0 ? "The wrapping helper returned no details." : result,
+                        exitCode == 0 ? "Model wrapping complete" : "Model wrapping failed",
+                        MessageBoxButtons.OK, exitCode == 0 ? MessageBoxIcon.Information : MessageBoxIcon.Error);
+                });
+            }
+            catch { }
+        });
+    }
+
+    void HandleMcpLabelClick()
+    {
+        if (!TestPort(8787))
+        {
+            MessageBox.Show(this, "MCP is off. Start MCP, then click its label here to wrap the models.",
+                "MCP is off", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+
+        var answer = MessageBox.Show(this,
+            "Wrap all Open WebUI models with MCP and Prefill Injection?",
+            "Confirm model wrapping", MessageBoxButtons.YesNo, MessageBoxIcon.Question);
+        if (answer == DialogResult.Yes) WrapAllModels();
     }
 
     Label MakeStatusLabel(int x, int y, Font f)
@@ -310,6 +434,15 @@ public class AIControlForm : Form
 
     bool IsAlive(Process p) { try { return p != null && !p.HasExited; } catch { return false; } }
 
+    bool EnsureGitHubShareMounted()
+    {
+        var p = RunWSL("-u", "root", "-e", "bash", "-lc",
+            "mkdir -p /mnt/r; grep -Fq ' on /mnt/r ' /proc/mounts || mount -t drvfs '\\\\TOWER\\addonfiles' /mnt/r; test -d /mnt/r/github");
+        if (p == null) return false;
+        try { return p.WaitForExit(15000) && p.ExitCode == 0; }
+        catch { return false; }
+    }
+
     void DoStart(string svc)
     {
         if (svc == "swap")
@@ -352,19 +485,27 @@ public class AIControlForm : Form
         }
         else if (svc == "mcp")
         {
-            GUILog("AI Workspace MCP starting");
+            GUILog("MCP starting");
             statusMcp.Text = "Starting"; statusMcp.ForeColor = ORANGE;
             btnMcp.Text = "..."; btnMcp.Enabled = false;
-            mcpProc = RunWSL("bash", "-c",
-                "export PATH=/home/natural/.local/node/bin:$PATH; " +
-                "/mnt/c/Users/Natural/llama.cpp/owui-venv/bin/mcpo" +
-                " --host 127.0.0.1 --port 8787" +
-                " --name ai-workspace-files" +
-                " --description 'Restricted AI Workspace filesystem'" +
-                " -- /home/natural/.local/node/bin/node" +
-                " /home/natural/.local/mcp-filesystem/node_modules/@modelcontextprotocol/server-filesystem/dist/index.js" +
-                " /mnt/c/Users/Natural/AI-Workspace" +
-                " >> " + MCP_LOG_WSL + " 2>&1");
+            if (!EnsureGitHubShareMounted())
+            {
+            GUILog("MCP could not mount \\\\TOWER\\addonfiles at /mnt/r");
+                statusMcp.Text = "Mount failed"; statusMcp.ForeColor = RED;
+                btnMcp.Text = "Start"; btnMcp.Enabled = true;
+                return;
+            }
+            mcpConfigProc = RunWSL("bash", "-lc",
+                "cd /mnt/c/Users/Natural/llama.cpp && ./owui-venv/bin/uvicorn mcp_configurator:app --host 127.0.0.1 --port 8790 >> /tmp/mcp-configurator.log 2>&1");
+            if (!WaitForPort(8790, 12000))
+            {
+                GUILog("MCP configurator failed to start; see /tmp/mcp-configurator.log");
+                statusMcp.Text = "Configurator failed"; statusMcp.ForeColor = RED;
+                btnMcp.Text = "Start"; btnMcp.Enabled = true;
+                return;
+            }
+            mcpProc = RunWSL("bash", "-lc",
+                "cd /mnt/c/Users/Natural/llama.cpp && ./owui-venv/bin/mcpo --host 127.0.0.1 --port 8787 --config mcp-readonly.json --hot-reload >> " + MCP_LOG_WSL + " 2>&1");
         }
     }
 
@@ -412,10 +553,13 @@ public class AIControlForm : Form
         }
         else if (svc == "mcp")
         {
-            GUILog("AI Workspace MCP stopping");
+            GUILog("MCP stopping");
             if (IsAlive(mcpProc)) { try { mcpProc.Kill(); } catch {} }
             mcpProc = null;
-            RunWSL("pkill", "-f", "mcpo.*ai-workspace-files");
+            RunWSL("pkill", "-x", "mcpo");
+            if (IsAlive(mcpConfigProc)) { try { mcpConfigProc.Kill(); } catch {} }
+            mcpConfigProc = null;
+            RunWSL("bash", "-lc", "fuser -k 8790/tcp 2>/dev/null || true");
         }
     }
 
@@ -446,18 +590,50 @@ public class AIControlForm : Form
         return false;
     }
 
-    void UpdateUI()
+    bool WaitForPort(int port, int timeoutMs)
     {
-        bool s = TestPort(8080), w = TestPort(3000), c = TestPort(8188), m = TestPort(8787);
+        var until = DateTime.UtcNow.AddMilliseconds(timeoutMs);
+        while (DateTime.UtcNow < until)
+        {
+            if (TestPort(port)) return true;
+            Thread.Sleep(250);
+        }
+        return TestPort(port);
+    }
+
+    void CheckServicesAsync()
+    {
+        if (checkingPorts || IsDisposed) return;
+        checkingPorts = true;
+        ThreadPool.QueueUserWorkItem(_ =>
+        {
+            bool s = TestPort(8080), w = TestPort(3000), c = TestPort(8188), m = TestPort(8787);
+            try
+            {
+                BeginInvoke((MethodInvoker)delegate
+                {
+                    if (!IsDisposed) UpdateUI(s, w, c, m);
+                    checkingPorts = false;
+                });
+            }
+            catch { checkingPorts = false; }
+        });
+    }
+
+    void UpdateUI(bool s, bool w, bool c, bool m)
+    {
         UpdateSvc(s, swapProc, statusSwap, btnSwap, btnOpenSwap, ref reloadingSwap, "llama-swap");
         UpdateSvc(w, webProc, statusWeb, btnWeb, btnOpenWeb, ref reloadingWeb, "Open WebUI");
         UpdateSvc(c, comfyProc, statusComfy, btnComfy, btnOpenComfy, ref reloadingComfy, "ComfyUI");
-        UpdateSvc(m, mcpProc, statusMcp, btnMcp, btnOpenMcp, ref reloadingMcp, "AI Workspace MCP");
+        UpdateSvc(m, mcpProc, statusMcp, btnMcp, btnOpenMcp, ref reloadingMcp, "MCP");
         if (tray != null)
         {
-            tray.Text = "Local AI  llama-swap:" + (s?"ON":"OFF") + " WebUI:" + (w?"ON":"OFF") + " Comfy:" + (c?"ON":"OFF") + " MCP:" + (m?"ON":"OFF");
-            bool crashed = IsErrorStatus(statusSwap) || IsErrorStatus(statusWeb) || IsErrorStatus(statusComfy) || IsErrorStatus(statusMcp);
-            bool starting = IsStartingStatus(statusSwap) || IsStartingStatus(statusWeb) || IsStartingStatus(statusComfy) || IsStartingStatus(statusMcp);
+            tray.Text = "Local AI | swap " + (s ? "on" : "off") + " web " + (w ? "on" : "off") +
+                " comfy " + (c ? "on" : "off") + " MCP " + (m ? "on" : "off");
+            bool crashed = IsErrorStatus(statusSwap) || IsErrorStatus(statusWeb) ||
+                IsErrorStatus(statusComfy) || IsErrorStatus(statusMcp);
+            bool starting = IsStartingStatus(statusSwap) || IsStartingStatus(statusWeb) ||
+                IsStartingStatus(statusComfy) || IsStartingStatus(statusMcp);
             RefreshTrayIcon(crashed ? RED : starting ? YELLOW : GREEN);
         }
     }
@@ -505,6 +681,152 @@ public class AIControlForm : Form
         TopMost = true; Activate(); BringToFront(); TopMost = false;
     }
 
+    void LaunchOpenCode()
+    {
+        string selectedPath = null;
+        using (var picker = new Form())
+        {
+            picker.Text = "OpenCode project";
+            picker.ClientSize = new Size(560, 330);
+            picker.FormBorderStyle = FormBorderStyle.FixedDialog;
+            picker.MaximizeBox = false;
+            picker.MinimizeBox = false;
+            picker.StartPosition = FormStartPosition.CenterParent;
+            picker.BackColor = BG;
+            picker.ForeColor = FG;
+            var recent = new ListBox { Location = new Point(12, 36), Size = new Size(536, 240),
+                BackColor = BTNBG, ForeColor = FG, Font = new Font("Segoe UI", 9f),
+                HorizontalScrollbar = true, IntegralHeight = false };
+            var label = new Label { Text = "Recent locations", Location = new Point(12, 12),
+                Size = new Size(300, 20), ForeColor = FG };
+            foreach (var path in LoadRecentOpenCodeFolders()) recent.Items.Add(path);
+            if (recent.Items.Count > 0) recent.SelectedIndex = 0;
+            var open = MakeBtn("Open", new Font("Segoe UI", 9f), 80, 28, 284, 290, Color.FromArgb(35, 70, 140));
+            var browse = MakeBtn("Browse...", new Font("Segoe UI", 9f), 90, 28, 370, 290, BTNBG);
+            var cancel = MakeBtn("Cancel", new Font("Segoe UI", 9f), 80, 28, 468, 290, BTNBG);
+            open.Enabled = recent.SelectedItem != null;
+            recent.SelectedIndexChanged += (s, e) => open.Enabled = recent.SelectedItem != null;
+            open.Click += (s, e) => { selectedPath = recent.SelectedItem as string; picker.DialogResult = DialogResult.OK; };
+            recent.DoubleClick += (s, e) => { if (recent.SelectedItem != null) open.PerformClick(); };
+            browse.Click += (s, e) => {
+                using (var folder = new FolderBrowserDialog())
+                {
+                    folder.Description = "Select a project for OpenCode";
+                    folder.ShowNewFolderButton = true;
+                    if (recent.SelectedItem != null && Directory.Exists((string)recent.SelectedItem))
+                        folder.SelectedPath = (string)recent.SelectedItem;
+                    if (folder.ShowDialog(picker) == DialogResult.OK)
+                    {
+                        selectedPath = folder.SelectedPath;
+                        picker.DialogResult = DialogResult.OK;
+                    }
+                }
+            };
+            cancel.DialogResult = DialogResult.Cancel;
+            picker.AcceptButton = open;
+            picker.CancelButton = cancel;
+            picker.Controls.AddRange(new Control[] { label, recent, open, browse, cancel });
+            if (picker.ShowDialog(this) != DialogResult.OK) return;
+        }
+        if (!Directory.Exists(selectedPath))
+        {
+            MessageBox.Show(this, "That folder is no longer available: " + selectedPath,
+                "Local AI", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+        try
+        {
+            Process.Start(new ProcessStartInfo {
+                FileName = "cmd.exe",
+                Arguments = "/k wsl.exe -d Ubuntu --cd \"" + selectedPath +
+                    "\" -e /home/natural/.opencode/bin/opencode",
+                UseShellExecute = true
+            });
+            SaveRecentOpenCodeFolder(selectedPath);
+            GUILog("OpenCode launched for " + selectedPath);
+        }
+        catch (Exception ex)
+        {
+            GUILog("OpenCode launch failed: " + ex.Message);
+            MessageBox.Show(this, "Could not open OpenCode: " + ex.Message,
+                "Local AI", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+    }
+
+    string RecentOpenCodePath
+    {
+        get { return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "LocalAI", "opencode-recent.txt"); }
+    }
+
+    List<string> LoadRecentOpenCodeFolders()
+    {
+        try
+        {
+            if (!File.Exists(RecentOpenCodePath)) return new List<string>();
+            var paths = new List<string>();
+            foreach (var path in File.ReadAllLines(RecentOpenCodePath))
+            {
+                if (string.IsNullOrWhiteSpace(path) || paths.Exists(p =>
+                    string.Equals(p, path, StringComparison.OrdinalIgnoreCase))) continue;
+                paths.Add(path);
+                if (paths.Count == 10) break;
+            }
+            return paths;
+        }
+        catch (Exception ex) { GUILog("Could not read recent OpenCode folders: " + ex.Message); return new List<string>(); }
+    }
+
+    void SaveRecentOpenCodeFolder(string path)
+    {
+        try
+        {
+            var paths = LoadRecentOpenCodeFolders();
+            paths.RemoveAll(p => string.Equals(p, path, StringComparison.OrdinalIgnoreCase));
+            paths.Insert(0, path);
+            if (paths.Count > 10) paths.RemoveRange(10, paths.Count - 10);
+            Directory.CreateDirectory(Path.GetDirectoryName(RecentOpenCodePath));
+            File.WriteAllLines(RecentOpenCodePath, paths.ToArray());
+        }
+        catch (Exception ex) { GUILog("Could not save recent OpenCode folders: " + ex.Message); }
+    }
+
+    void StopAllServices()
+    {
+        DoStop("swap"); DoStop("web"); DoStop("comfy"); DoStop("mcp");
+        CheckServicesAsync();
+    }
+
+    void StopAndExit()
+    {
+        btnStop.Enabled = false;
+        StopAllServices();
+        ThreadPool.QueueUserWorkItem(_ =>
+        {
+            var until = DateTime.UtcNow.AddSeconds(12);
+            while (DateTime.UtcNow < until &&
+                (TestPort(8080) || TestPort(3000) || TestPort(8188) || TestPort(8787) || TestPort(8790)))
+                Thread.Sleep(300);
+
+            bool stillRunning = TestPort(8080) || TestPort(3000) || TestPort(8188) ||
+                TestPort(8787) || TestPort(8790);
+            try
+            {
+                BeginInvoke((MethodInvoker)delegate
+                {
+                    btnStop.Enabled = true;
+                    if (stillRunning && MessageBox.Show(this,
+                        "Some services are still responding. Exit the manager anyway?",
+                        "Local AI", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes)
+                        return;
+                    exitForReal = true;
+                    Close();
+                });
+            }
+            catch { }
+        });
+    }
+
     void SetupTray()
     {
         tray = new NotifyIcon();
@@ -516,23 +838,11 @@ public class AIControlForm : Form
 
         var cm = new ContextMenuStrip();
         cm.Items.Add("Show",        null, (s, e) => ShowFront());
-        cm.Items.Add("-");
         cm.Items.Add("Start All",   null, (s, e) => { DoStart("swap"); DoStart("web"); DoStart("comfy"); DoStart("mcp"); });
-        cm.Items.Add("Stop All",    null, (s, e) => { DoStop("swap"); DoStop("web"); DoStop("comfy"); DoStop("mcp"); });
-        cm.Items.Add("-");
-        cm.Items.Add("Go to llama-swap", null, (s, e) => Process.Start("http://localhost:8080/ui/#/playground"));
-        cm.Items.Add("Go to Open WebUI", null, (s, e) => Process.Start("http://localhost:3000"));
-        cm.Items.Add("Go to ComfyUI", null, (s, e) => Process.Start("http://localhost:8188"));
-        cm.Items.Add("Open AI Workspace MCP", null, (s, e) => Process.Start("http://127.0.0.1:8787/docs"));
-        cm.Items.Add("-");
-        cm.Items.Add("llama-swap Log", null, (s, e) => OpenWslLog(SWAP_LOG_WSL, SWAP_LOG_WIN));
-        cm.Items.Add("WebUI Log",   null, (s, e) => OpenWslLog(WEB_LOG_WSL,  WEB_LOG_WIN));
-        cm.Items.Add("ComfyUI Log", null, (s, e) => OpenWinLog(COMFY_LOG_WIN));
-        cm.Items.Add("MCP Log", null, (s, e) => OpenWslLog(MCP_LOG_WSL, MCP_LOG_WIN));
-        cm.Items.Add("GUI Log",     null, (s, e) => ShowGuiLog());
-        cm.Items.Add("-");
+        cm.Items.Add("Stop All",    null, (s, e) => StopAllServices());
         cm.Items.Add("Exit", null, (s, e) => { exitForReal = true; tray.Visible = false; Close(); });
         tray.ContextMenuStrip = cm;
+
         tray.DoubleClick += (s, e) => ShowFront();
     }
 
@@ -556,7 +866,7 @@ public class AIControlForm : Form
     {
         var bmp = new Bitmap(32, 32);
         using (var g = Graphics.FromImage(bmp))
-        using (var source = Image.FromFile(imagePath ?? Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "src", "excavator.png")))
+        using (var source = Image.FromFile(imagePath ?? Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "excavator.png")))
         {
             g.SmoothingMode = SmoothingMode.AntiAlias;
             g.InterpolationMode = InterpolationMode.HighQualityBicubic;
@@ -587,7 +897,7 @@ public class AIControlForm : Form
     {
         if (args.Length == 3 && args[0] == "--export-icon")
         {
-            ExportExcavatorIcon(args[1], args[2]);
+            AIControlForm.ExportExcavatorIcon(args[1], args[2]);
             return;
         }
         bool created;
