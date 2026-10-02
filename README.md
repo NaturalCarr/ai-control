@@ -43,7 +43,7 @@ Model weights are deliberately excluded from Git. Download them separately and u
 
 The window and notification-area icons use `src/excavator.png`. See [Icon status](docs/icon-status.md) for how the background color reflects service state.
 
-OpenCode's **Launch** button lists the last 10 folders opened from this manager. Choose one to reopen it, or click **Browse...** to select a different folder. The folder browser includes **Make New Folder**. Recent paths are stored locally at `%LOCALAPPDATA%\LocalAI\opencode-recent.txt`; they are not part of this repository. OpenCode is an interactive terminal and is not stopped by **Stop All**.
+OpenCode's **Launch** button shows a scrollable list of previously opened folders with a **Last opened** time. Search matches any part of a path. Click a folder to open it, use its `-` button to remove it from Recent, or select several with Ctrl/Shift and choose **Remove Multiple**. Removal asks for confirmation and does not delete folders. **Browse...** opens the folder browser with **Make New Folder**. Recent paths are stored locally at `%LOCALAPPDATA%\LocalAI\opencode-recent.json`; the older `.txt` list is imported automatically. These files are not part of this repository. OpenCode is an interactive terminal and is not stopped by **Stop All**.
 
 The current reference setup expects the local stack at:
 

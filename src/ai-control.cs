@@ -11,6 +11,13 @@ using System.Threading.Tasks;
 using System.Text;
 using System.Runtime.InteropServices;
 using System.IO;
+using System.Web.Script.Serialization;
+
+public class RecentOpenCodeEntry
+{
+    public string Path { get; set; }
+    public long LastOpenedUtcTicks { get; set; }
+}
 
 // Button that draws the ↺ character rotated by Angle degrees
 class ReloadButton : Button
@@ -687,34 +694,100 @@ public class AIControlForm : Form
         using (var picker = new Form())
         {
             picker.Text = "OpenCode project";
-            picker.ClientSize = new Size(560, 330);
+            picker.ClientSize = new Size(640, 390);
             picker.FormBorderStyle = FormBorderStyle.FixedDialog;
             picker.MaximizeBox = false;
             picker.MinimizeBox = false;
             picker.StartPosition = FormStartPosition.CenterParent;
             picker.BackColor = BG;
             picker.ForeColor = FG;
-            var recent = new ListBox { Location = new Point(12, 36), Size = new Size(536, 240),
-                BackColor = BTNBG, ForeColor = FG, Font = new Font("Segoe UI", 9f),
-                HorizontalScrollbar = true, IntegralHeight = false };
             var label = new Label { Text = "Recent locations", Location = new Point(12, 12),
                 Size = new Size(300, 20), ForeColor = FG };
-            foreach (var path in LoadRecentOpenCodeFolders()) recent.Items.Add(path);
-            if (recent.Items.Count > 0) recent.SelectedIndex = 0;
-            var open = MakeBtn("Open", new Font("Segoe UI", 9f), 80, 28, 284, 290, Color.FromArgb(35, 70, 140));
-            var browse = MakeBtn("Browse...", new Font("Segoe UI", 9f), 90, 28, 370, 290, BTNBG);
-            var cancel = MakeBtn("Cancel", new Font("Segoe UI", 9f), 80, 28, 468, 290, BTNBG);
-            open.Enabled = recent.SelectedItem != null;
-            recent.SelectedIndexChanged += (s, e) => open.Enabled = recent.SelectedItem != null;
-            open.Click += (s, e) => { selectedPath = recent.SelectedItem as string; picker.DialogResult = DialogResult.OK; };
-            recent.DoubleClick += (s, e) => { if (recent.SelectedItem != null) open.PerformClick(); };
+            var search = new TextBox { Location = new Point(12, 36), Size = new Size(616, 24),
+                Font = new Font("Segoe UI", 9f) };
+            var searchTip = new ToolTip();
+            searchTip.SetToolTip(search, "Search any part of a recent path");
+            var recent = new DataGridView { Location = new Point(12, 68), Size = new Size(616, 268),
+                BackgroundColor = BTNBG, ForeColor = FG, GridColor = Color.FromArgb(70, 70, 70),
+                BorderStyle = BorderStyle.FixedSingle, AllowUserToAddRows = false,
+                AllowUserToDeleteRows = false, AllowUserToResizeRows = false,
+                ReadOnly = true, RowHeadersVisible = false, ColumnHeadersVisible = true,
+                MultiSelect = true, SelectionMode = DataGridViewSelectionMode.FullRowSelect,
+                ScrollBars = ScrollBars.Both,
+                AutoSizeRowsMode = DataGridViewAutoSizeRowsMode.None, RowTemplate = { Height = 28 } };
+            recent.DefaultCellStyle.BackColor = BTNBG;
+            recent.DefaultCellStyle.ForeColor = FG;
+            recent.DefaultCellStyle.SelectionBackColor = Color.FromArgb(35, 70, 140);
+            recent.DefaultCellStyle.SelectionForeColor = FG;
+            recent.ColumnHeadersDefaultCellStyle.BackColor = BG;
+            recent.ColumnHeadersDefaultCellStyle.ForeColor = FG;
+            recent.EnableHeadersVisualStyles = false;
+            recent.Columns.Add(new DataGridViewTextBoxColumn { Name = "Path", AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill });
+            recent.Columns.Add(new DataGridViewTextBoxColumn { Name = "Last opened", Width = 132 });
+            recent.Columns.Add(new DataGridViewButtonColumn { Name = "Remove", Width = 36,
+                Text = "-", UseColumnTextForButtonValue = true });
+            var open = MakeBtn("Open", new Font("Segoe UI", 9f), 128, 28, 306, 350, Color.FromArgb(35, 70, 140));
+            var browse = MakeBtn("Browse...", new Font("Segoe UI", 9f), 90, 28, 442, 350, BTNBG);
+            var cancel = MakeBtn("Cancel", new Font("Segoe UI", 9f), 88, 28, 540, 350, BTNBG);
+            var paths = LoadRecentOpenCodeFolders();
+            Action updateAction = () => {
+                open.Text = recent.SelectedRows.Count > 1 ? "Remove Multiple" : "Open";
+                open.Enabled = recent.SelectedRows.Count > 0;
+            };
+            Action refresh = () => {
+                recent.Rows.Clear();
+                foreach (var entry in paths)
+                    if (entry.Path.IndexOf(search.Text, StringComparison.OrdinalIgnoreCase) >= 0)
+                        recent.Rows.Add(entry.Path, entry.LastOpenedUtcTicks > 0
+                            ? new DateTime(entry.LastOpenedUtcTicks, DateTimeKind.Utc).ToLocalTime().ToString("g")
+                            : "Unknown");
+                recent.ClearSelection();
+                if (recent.Rows.Count > 0) recent.Rows[0].Selected = true;
+                updateAction();
+            };
+            Action<List<string>> removePaths = remove => {
+                if (remove.Count == 0) return;
+                string message = remove.Count == 1
+                    ? "Remove this location from Recent?\n\n" + remove[0]
+                    : "Remove " + remove.Count + " locations from Recent?";
+                if (MessageBox.Show(picker, message + "\n\nFolders on disk will not be deleted.",
+                    "Confirm removal", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
+                var remaining = paths.FindAll(p => !remove.Exists(item =>
+                    string.Equals(item, p.Path, StringComparison.OrdinalIgnoreCase)));
+                if (WriteRecentOpenCodeFolders(remaining)) { paths = remaining; refresh(); }
+            };
+            search.TextChanged += (s, e) => refresh();
+            recent.SelectionChanged += (s, e) => updateAction();
+            recent.CellContentClick += (s, e) => {
+                if (e.RowIndex >= 0 && e.ColumnIndex == 2)
+                    removePaths(new List<string> { (string)recent.Rows[e.RowIndex].Cells[0].Value });
+            };
+            recent.CellDoubleClick += (s, e) => {
+                if (e.RowIndex >= 0 && e.ColumnIndex == 0 && recent.SelectedRows.Count == 1)
+                    open.PerformClick();
+            };
+            open.Click += (s, e) => {
+                if (recent.SelectedRows.Count > 1)
+                {
+                    var remove = new List<string>();
+                    foreach (DataGridViewRow row in recent.SelectedRows)
+                        remove.Add((string)row.Cells[0].Value);
+                    removePaths(remove);
+                }
+                else if (recent.SelectedRows.Count == 1)
+                {
+                    selectedPath = (string)recent.SelectedRows[0].Cells[0].Value;
+                    picker.DialogResult = DialogResult.OK;
+                }
+            };
             browse.Click += (s, e) => {
                 using (var folder = new FolderBrowserDialog())
                 {
                     folder.Description = "Select a project for OpenCode";
                     folder.ShowNewFolderButton = true;
-                    if (recent.SelectedItem != null && Directory.Exists((string)recent.SelectedItem))
-                        folder.SelectedPath = (string)recent.SelectedItem;
+                    if (recent.SelectedRows.Count == 1 &&
+                        Directory.Exists((string)recent.SelectedRows[0].Cells[0].Value))
+                        folder.SelectedPath = (string)recent.SelectedRows[0].Cells[0].Value;
                     if (folder.ShowDialog(picker) == DialogResult.OK)
                     {
                         selectedPath = folder.SelectedPath;
@@ -725,7 +798,8 @@ public class AIControlForm : Form
             cancel.DialogResult = DialogResult.Cancel;
             picker.AcceptButton = open;
             picker.CancelButton = cancel;
-            picker.Controls.AddRange(new Control[] { label, recent, open, browse, cancel });
+            picker.Controls.AddRange(new Control[] { label, search, recent, open, browse, cancel });
+            refresh();
             if (picker.ShowDialog(this) != DialogResult.OK) return;
         }
         if (!Directory.Exists(selectedPath))
@@ -756,25 +830,35 @@ public class AIControlForm : Form
     string RecentOpenCodePath
     {
         get { return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "LocalAI", "opencode-recent.txt"); }
+            "LocalAI", "opencode-recent.json"); }
     }
 
-    List<string> LoadRecentOpenCodeFolders()
+    List<RecentOpenCodeEntry> LoadRecentOpenCodeFolders()
     {
         try
         {
-            if (!File.Exists(RecentOpenCodePath)) return new List<string>();
-            var paths = new List<string>();
-            foreach (var path in File.ReadAllLines(RecentOpenCodePath))
+            List<RecentOpenCodeEntry> source;
+            if (File.Exists(RecentOpenCodePath))
+                source = new JavaScriptSerializer().Deserialize<List<RecentOpenCodeEntry>>(File.ReadAllText(RecentOpenCodePath));
+            else
             {
-                if (string.IsNullOrWhiteSpace(path) || paths.Exists(p =>
-                    string.Equals(p, path, StringComparison.OrdinalIgnoreCase))) continue;
-                paths.Add(path);
-                if (paths.Count == 10) break;
+                var legacyPath = Path.ChangeExtension(RecentOpenCodePath, ".txt");
+                source = new List<RecentOpenCodeEntry>();
+                if (File.Exists(legacyPath))
+                    foreach (var path in File.ReadAllLines(legacyPath))
+                        source.Add(new RecentOpenCodeEntry { Path = path });
+            }
+            var paths = new List<RecentOpenCodeEntry>();
+            if (source == null) return paths;
+            foreach (var entry in source)
+            {
+                if (entry == null || string.IsNullOrWhiteSpace(entry.Path) || paths.Exists(p =>
+                    string.Equals(p.Path, entry.Path, StringComparison.OrdinalIgnoreCase))) continue;
+                paths.Add(entry);
             }
             return paths;
         }
-        catch (Exception ex) { GUILog("Could not read recent OpenCode folders: " + ex.Message); return new List<string>(); }
+        catch (Exception ex) { GUILog("Could not read recent OpenCode folders: " + ex.Message); return new List<RecentOpenCodeEntry>(); }
     }
 
     void SaveRecentOpenCodeFolder(string path)
@@ -782,13 +866,28 @@ public class AIControlForm : Form
         try
         {
             var paths = LoadRecentOpenCodeFolders();
-            paths.RemoveAll(p => string.Equals(p, path, StringComparison.OrdinalIgnoreCase));
-            paths.Insert(0, path);
-            if (paths.Count > 10) paths.RemoveRange(10, paths.Count - 10);
-            Directory.CreateDirectory(Path.GetDirectoryName(RecentOpenCodePath));
-            File.WriteAllLines(RecentOpenCodePath, paths.ToArray());
+            paths.RemoveAll(p => string.Equals(p.Path, path, StringComparison.OrdinalIgnoreCase));
+            paths.Insert(0, new RecentOpenCodeEntry { Path = path, LastOpenedUtcTicks = DateTime.UtcNow.Ticks });
+            WriteRecentOpenCodeFolders(paths);
         }
         catch (Exception ex) { GUILog("Could not save recent OpenCode folders: " + ex.Message); }
+    }
+
+    bool WriteRecentOpenCodeFolders(List<RecentOpenCodeEntry> paths)
+    {
+        try
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(RecentOpenCodePath));
+            File.WriteAllText(RecentOpenCodePath, new JavaScriptSerializer().Serialize(paths));
+            return true;
+        }
+        catch (Exception ex)
+        {
+            GUILog("Could not save recent OpenCode folders: " + ex.Message);
+            MessageBox.Show(this, "Could not update recent locations: " + ex.Message,
+                "Local AI", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            return false;
+        }
     }
 
     void StopAllServices()

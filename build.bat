@@ -10,6 +10,7 @@ echo Generating excavator app icon ...
     /reference:System.Windows.Forms.dll ^
     /reference:System.Drawing.dll ^
     /reference:System.dll ^
+    /reference:System.Web.Extensions.dll ^
     /nologo
 if errorlevel 1 goto failed
 
@@ -22,6 +23,7 @@ echo Building ai-control.exe ...
     /reference:System.Windows.Forms.dll ^
     /reference:System.Drawing.dll ^
     /reference:System.dll ^
+    /reference:System.Web.Extensions.dll ^
     /nologo
 
 if %ERRORLEVEL% == 0 (
